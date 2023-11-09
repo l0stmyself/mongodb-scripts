@@ -59,67 +59,142 @@ countVerifier = function (loggingDbName,
   destMongo.auth(destUsername, pwd);
   destLoggingDB = destMongo.getSiblingDB(loggingDbName);
 
-  collectionWhiteList.forEach(countChecker);
+  if (collectionWhiteList && Array.isArray(collectionWhiteList) && collectionWhiteList.length > 0) {
+    collectionWhiteList.forEach(countChecker);
 
-  function countChecker(dbNamespace) {
-    dbNameCollNameArray = dbNamespace.split('.');
+    function countChecker(dbNamespace) {
+      dbNameCollNameArray = dbNamespace.split('.');
 
-    sourceDB = db.getSiblingDB(dbNameCollNameArray[0]);
-    destDB = destLoggingDB.getSiblingDB(dbNameCollNameArray[0]);
+      sourceDB = db.getSiblingDB(dbNameCollNameArray[0]);
+      destDB = destLoggingDB.getSiblingDB(dbNameCollNameArray[0]);
 
-    if (dbNameCollNameArray[0] !== 'admin' && dbNameCollNameArray[0] != 'local' && dbNameCollNameArray[0] != 'config') {
+      if (dbNameCollNameArray[0] !== 'admin' && dbNameCollNameArray[0] != 'local' && dbNameCollNameArray[0] != 'config') {
 
-      print("Processing collection: " + dbNamespace);
-      collStartDate = ISODate();
-      addUniqueValueToArray(dbNamespace, runSummary.collNames.processed);
-      runSummary.collDetails.processed++;
+        print("Processing collection: " + dbNamespace);
+        collStartDate = ISODate();
+        addUniqueValueToArray(dbNamespace, runSummary.collNames.processed);
+        runSummary.collDetails.processed++;
 
-      sourceColl = sourceDB.getSiblingDB(dbNameCollNameArray[0]).getCollection(dbNameCollNameArray[1]);
-      destColl = destDB.getSiblingDB(dbNameCollNameArray[0]).getCollection(dbNameCollNameArray[1]);
+        finalCollName = "";
 
-      //load counts to work with
-      sourceCollCount = sourceColl.count();
-      destCollCount = destColl.count();
+        if (dbNameCollNameArray.length > 2)
+        {
+          for (let index = 1; index < dbNameCollNameArray.length; index++) {
+            
+            finalCollName += dbNameCollNameArray[index] + ".";
+            
+          }
+          
+          finalCollName = finalCollName.substring(0, finalCollName.length-1);
+          
+        }
+        else
+        {
+          finalCollName = dbNameCollNameArray[1];
+        }
 
-      if (sourceCollCount === destCollCount) {
-        runSummary.collDetails.matches++;
+        sourceColl = sourceDB.getSiblingDB(dbNameCollNameArray[0]).getCollection(finalCollName);
+        destColl = destDB.getSiblingDB(dbNameCollNameArray[0]).getCollection(finalCollName);
+
+        //load counts to work with
+        sourceCollCount = sourceColl.count();
+        destCollCount = destColl.count();
+
+        if (sourceCollCount === destCollCount) {
+          runSummary.collDetails.matches++;
+        }
+
+        else {
+          runSummary.collDetails.mismatches++;
+        }
+
+        resultDoc = {
+          runId: runId,
+          ns: dbNamespace,
+          skipped: false,
+          verificationType: "count",
+          start: collStartDate,
+          end: ISODate(),
+          srcCount: sourceCollCount,
+          dstCount: destCollCount,
+          matched: (sourceCollCount === destCollCount)
+        }
+
+        loggingDb.getCollection(logCollName).insert(resultDoc);
       }
-
-      else {
-        runSummary.collDetails.mismatches++;
-      }
-
-      resultDoc = {
-        runId: runId,
-        ns: dbNamespace,
-        skipped: false,
-        verificationType: "count",
-        start: collStartDate,
-        end: ISODate(),
-        srcCount: sourceCollCount,
-        dstCount: destCollCount,
-        matched: (sourceCollCount === destCollCount)
-      }
-
-      loggingDb.getCollection(logCollName).insert(resultDoc);
     }
-  }
 
-  runSummary.end = ISODate();
-  loggingDb.getCollection(jobCollName).update({ _id: runId }, { $set: runSummary });
+    runSummary.end = ISODate();
+    loggingDb.getCollection(jobCollName).update({ _id: runId }, { $set: runSummary });
 
-  print("*** Results Summary ...")
-  job = loggingDb.getCollection(jobCollName).findOne({ _id: runId });
-  print(JSON.stringify(job, null, '\t'))
-  print("*** Mismatches ...")
-  results = loggingDb.getCollection(logCollName).find({ runId: runId, matched: false }).toArray();
-  if (results && results.length > 0) {
-    print("*** To view the _id of all the mismatched collections, run the following on the source database ...");
-    print("   use " + loggingDbName);
-    print("   db." + logCollName + ".find({runId: " + runId.toString() + ", matched: false}).pretty()");
-    print("*** ")
+    print("*** Results Summary ...")
+    job = loggingDb.getCollection(jobCollName).findOne({ _id: runId });
+    print(JSON.stringify(job, null, '\t'))
+    print("*** Mismatches ...")
+    results = loggingDb.getCollection(logCollName).find({ runId: runId, matched: false }).toArray();
+    if (results && results.length > 0) {
+      print("*** To view the _id of all the mismatched collections, run the following on the source database ...");
+      print("   use " + loggingDbName);
+      print("   db." + logCollName + ".find({runId: " + runId.toString() + ", matched: false}).pretty()");
+      print("*** ")
+    }
+    print(JSON.stringify(results, null, '\t'))
   }
-  print(JSON.stringify(results, null, '\t'))
+  else {
+
+    db.adminCommand("listDatabases").databases.forEach(function(d) {
+      sourceDB = db.getSiblingDB(d.name);
+      destDB = destLoggingDB.getSiblingDB(d.name);
+  
+      if (d.name !== 'admin' && d.name != 'local' && d.name != 'config') {
+        sourceDB.getCollectionInfos().forEach(function(c) {
+          collStartDate = ISODate();
+          ns = d.name + "." + c.name;
+  
+          if (d.name === loggingDbName){
+            print("Skipping loggingDb collection: " + ns);
+            addUniqueValueToArray(d.name, runSummary.collDetails.skipped);
+          }
+          else if (c.name.startsWith('system.')){
+            print("Skipping system collection: " + ns);
+          }
+          else {
+            print("Processing collection: " + ns);
+            addUniqueValueToArray(d.name, runSummary.collNames.processed);
+            runSummary.collNames.processed++;
+  
+            sourceColl = sourceDB.getSiblingDB(d.name).getCollection(c.name);
+            destColl = destDB.getSiblingDB(d.name).getCollection(c.name);
+            
+            //load counts to work with
+            sourceCollCount = sourceColl.count();
+            destCollCount = destColl.count();
+
+            if (sourceCollCount === destCollCount){
+              runSummary.collDetails.matches++;
+            }
+            else{
+              runSummary.collDetails.mismatches++;
+            }
+  
+            resultDoc = {
+              runId : runId,
+              ns : ns,
+              skipped: false,
+              verificationType: "count",
+              start : collStartDate,
+              end : ISODate(),
+              srcCount : sourceCollCount, 
+              dstCount : destCollCount,
+              matched : (sourceCollCount === destCollCount)
+            }
+  
+            loggingDb.getCollection(logCollName).insert(resultDoc);
+          }
+        });
+      }
+    });
+  }
 
 }
 
@@ -133,8 +208,8 @@ countVerifier(
   "test", //loggingDbName
   "myAtlasDBUser", //destUsername
   "MongoDB123", //destPassword - can be <string>, <function reference> e.g. passwordPrompt, null will execute passwordPrompt()
-  "mongodb+srv://cluster1.nnjyy.mongodb.net", //destination connection string (ignores credentials)
-  ["sample_training.grades", "sample_training.inspections", "sample_training.posts", "sample_training.routes", "sample_training.trips", "sample_training.zips", "sample_mflix.movies"] //collectionWhitelist
+  "mongodb+srv://cluster1.nnjyy.mongodb.net" //destination connection string (ignores credentials)
+   //collectionWhitelist
 );
 
 

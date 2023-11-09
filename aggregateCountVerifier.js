@@ -74,18 +74,36 @@ aggregateCountVerifier = function (loggingDbName,
             addUniqueValueToArray(dbNamespace, runSummary.collNames.processed);
             runSummary.collDetails.processed++;
 
-            sourceColl = sourceDB.getSiblingDB(dbNameCollNameArray[0]).getCollection(dbNameCollNameArray[1]);
-            destColl = destDB.getSiblingDB(dbNameCollNameArray[0]).getCollection(dbNameCollNameArray[1]);
+            finalCollName = "";
+
+            if (dbNameCollNameArray.length > 2)
+            {
+              for (let index = 1; index < dbNameCollNameArray.length; index++) {
+                
+                finalCollName += dbNameCollNameArray[index] + ".";
+                
+              }
+              
+              finalCollName = finalCollName.substring(0, finalCollName.length-1);
+              
+            }
+            else
+            {
+              finalCollName = dbNameCollNameArray[1];
+            }
+    
+            sourceColl = sourceDB.getSiblingDB(dbNameCollNameArray[0]).getCollection(finalCollName);
+            destColl = destDB.getSiblingDB(dbNameCollNameArray[0]).getCollection(finalCollName);
 
             //load counts to work with
             sourceCollCount = sourceColl.aggregate([
                 { $group: { _id: null, count: { $sum: 1 } } },
-                { $project: { _id: 0 } }
+                { $project: { count: 1 } }
             ]).toArray()[0].count;
 
             destCollCount = destColl.aggregate([
                 { $group: { _id: null, count: { $sum: 1 } } },
-                { $project: { _id: 0 } }
+                { $project: { count: 1 } }
             ]).toArray()[0].count;
 
             if (sourceCollCount === destCollCount) {
@@ -139,8 +157,8 @@ addUniqueValueToArray = function (value, array) {
 
 aggregateCountVerifier(
     "test", //loggingDbName
-    "myAtlasDBUser", //destUsername
-    "MongoDB123", //destPassword - can be <string>, <function reference> e.g. passwordPrompt, null will execute passwordPrompt()
+    "", //destUsername
+    "", //destPassword - can be <string>, <function reference> e.g. passwordPrompt, null will execute passwordPrompt()
     "mongodb+srv://cluster1.nnjyy.mongodb.net", //destination connection string (ignores credentials)
     ["sample_training.inspections", "sample_training.zips", "sample_mflix.movies"] //collectionWhitelist
 );
