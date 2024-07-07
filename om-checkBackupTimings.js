@@ -1,3 +1,4 @@
+//Run the following in mongosh
 var backup = {};
 backup.snapshotData = function(query) {
   query = query || {}
